@@ -1,0 +1,51 @@
+# ===================================================================
+# File .gitignore untuk Proyek Go (KiosKita)
+# ===================================================================
+
+# 1. File Konfigurasi Lokal & Rahasia
+# Ini adalah file yang paling penting untuk diabaikan.
+# File .env berisi kredensial database dan rahasia lainnya.
+.env
+.env.local
+.env.*.local
+
+# 2. Hasil Kompilasi & Binary
+# Abaikan hasil dari 'go build'. Binary ini spesifik untuk setiap OS
+# dan harus dibuat saat deployment, bukan disimpan di Git.
+# Ganti 'kioskita-go' jika nama binary Anda berbeda.
+kioskita-go
+kioskita-go.exe
+
+# Abaikan direktori build jika ada
+/build/
+/bin/
+
+# 3. File Spesifik Sistem Operasi
+# File-file ini dibuat secara otomatis oleh OS dan tidak relevan dengan kode.
+.DS_Store
+Thumbs.db
+
+# 4. File Konfigurasi Editor & IDE
+# Mencegah file pengaturan lokal dari editor masuk ke repositori.
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 5. Log & File Sementara
+# Abaikan file log dan file sementara lainnya.
+*.log
+*.tmp
+*.temp
+
+# 6. Dependensi Go (jika menggunakan vendor)
+# Direktori vendor tidak perlu dimasukkan jika semua orang menggunakan Go Modules.
+# Namun, jika Anda memutuskan untuk menggunakan 'go mod vendor',
+# baris ini bisa dihapus.
+/vendor/
+
+# 7. File Cakupan Tes (Test Coverage)
+# Hasil dari 'go test -coverprofile'
+*.cover
+*.out
+
