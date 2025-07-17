@@ -1,0 +1,24 @@
+{
+  "displayName": "Toko Pakaian & Fashion",
+  "schema": [
+    {
+      "key": "warna",
+      "label": "Warna",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "ukuran",
+      "label": "Ukuran",
+      "type": "select",
+      "options": ["S", "M", "L", "XL", "XXL"],
+      "required": true
+    },
+    {
+      "key": "bahan",
+      "label": "Bahan",
+      "type": "text",
+      "required": false
+    }
+  ]
+}

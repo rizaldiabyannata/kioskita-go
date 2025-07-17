@@ -2,63 +2,81 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 
-	"github.com/rizaldiabyannata/kioskita-go/internal/core"  // Ganti 'kioskita' dengan nama modul Go Anda jika berbeda
-	"github.com/rizaldiabyannata/kioskita-go/internal/store" // Ganti 'kioskita' dengan nama modul Go Anda jika berbeda
-
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid" // <-- Tambahkan import ini
+	"github.com/google/uuid"
+	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
-// ProductHandler menangani permintaan HTTP untuk produk.
+// ProductHandler sekarang memiliki field untuk store dan config.
 type ProductHandler struct {
-	store *store.ProductStore
+	store  *store.ProductStore
+	config *core.StoreConfig
 }
 
-// NewProductHandler membuat instance baru dari ProductHandler.
-func NewProductHandler(store *store.ProductStore) *ProductHandler {
-	return &ProductHandler{store: store}
+// --- PERBAIKAN UTAMA DI SINI ---
+// Constructor (fungsi New...) sekarang menerima dua argumen: store dan config.
+// Ini akan menyelesaikan error "too many arguments".
+func NewProductHandler(store *store.ProductStore, config *core.StoreConfig) *ProductHandler {
+	return &ProductHandler{store: store, config: config}
 }
 
 // RegisterRoutes mendaftarkan semua rute produk ke router Gin.
 func (h *ProductHandler) RegisterRoutes(router *gin.RouterGroup) {
 	productRoutes := router.Group("/products")
 	{
-		productRoutes.POST("/", h.CreateProduct)
 		productRoutes.GET("/", h.ListProducts)
 		productRoutes.GET("/:id", h.GetProductByID)
-		productRoutes.PUT("/:id", h.UpdateProduct)
-		productRoutes.DELETE("/:id", h.DeleteProduct)
+
+		protected := productRoutes.Group("/")
+		protected.Use(AuthMiddleware())
+		{
+			protected.POST("/", h.CreateProduct)
+			protected.PUT("/:id", h.UpdateProduct)
+			protected.DELETE("/:id", h.DeleteProduct)
+		}
 	}
 }
 
-// CreateProduct menangani pembuatan produk baru.
+// CreateProduct menggunakan config untuk validasi dinamis.
 func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	var newProduct core.Product
-
 	if err := c.ShouldBindJSON(&newProduct); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// === PERUBAHAN UTAMA DI SINI ===
-	// Buat ID unik baru sebelum menyimpan ke database.
-	newProduct.ID = uuid.NewString()
-	// ===============================
+	// Validasi dinamis berdasarkan skema dari config
+	var attributes map[string]interface{}
+	if err := json.Unmarshal(newProduct.Attributes, &attributes); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Format JSON pada atribut tidak valid."})
+		return
+	}
 
+	for _, schema := range h.config.ProductSchema {
+		if schema.Required {
+			if _, ok := attributes[schema.Key]; !ok {
+				errorMsg := fmt.Sprintf("Atribut '%s' (%s) wajib diisi.", schema.Label, schema.Key)
+				c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+				return
+			}
+		}
+	}
+
+	newProduct.ID = uuid.NewString()
 	if err := h.store.Create(&newProduct); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan produk"})
 		return
 	}
-
 	c.JSON(http.StatusCreated, newProduct)
 }
 
-// GetProductByID menangani pengambilan satu produk berdasarkan ID.
 func (h *ProductHandler) GetProductByID(c *gin.Context) {
 	id := c.Param("id")
-
 	product, err := h.store.GetByID(id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -68,31 +86,25 @@ func (h *ProductHandler) GetProductByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil produk"})
 		return
 	}
-
 	c.JSON(http.StatusOK, product)
 }
 
-// ListProducts menangani pengambilan semua produk.
 func (h *ProductHandler) ListProducts(c *gin.Context) {
 	products, err := h.store.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil daftar produk"})
 		return
 	}
-
 	c.JSON(http.StatusOK, products)
 }
 
-// UpdateProduct menangani pembaruan produk.
 func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	id := c.Param("id")
 	var updatedProduct core.Product
-
 	if err := c.ShouldBindJSON(&updatedProduct); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	err := h.store.Update(id, &updatedProduct)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -102,14 +114,11 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui produk"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Produk berhasil diperbarui"})
 }
 
-// DeleteProduct menangani penghapusan produk.
 func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 	id := c.Param("id")
-
 	err := h.store.Delete(id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -119,6 +128,5 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus produk"})
 		return
 	}
-
 	c.Status(http.StatusNoContent)
 }

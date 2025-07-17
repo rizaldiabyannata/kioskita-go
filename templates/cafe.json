@@ -1,0 +1,18 @@
+{
+  "displayName": "Kafe & Minuman",
+  "schema": [
+    {
+      "key": "asal_biji",
+      "label": "Asal Biji Kopi",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "level_giling",
+      "label": "Level Gilingan",
+      "type": "select",
+      "options": ["Biji Utuh", "Kasar", "Medium", "Halus"],
+      "required": false
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "storeName": "Warung Kopi Bahagia",
+  "businessType": "Kafe \u0026 Minuman",
+  "setupComplete": true,
+  "productSchema": [
+    {
+      "key": "asal_biji",
+      "label": "Asal Biji Kopi",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "level_giling",
+      "label": "Level Gilingan",
+      "type": "select",
+      "options": [
+        "Biji Utuh",
+        "Kasar",
+        "Medium",
+        "Halus"
+      ],
+      "required": false
+    }
+  ]
+}
