@@ -1,10 +1,14 @@
 package core
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // User merepresentasikan data pengguna di dalam sistem.
 type User struct {
-	ID           string    `db:"id" json:"id"`
+	ID           uuid.UUID `db:"id" json:"id"`
 	Email        string    `db:"email" json:"email"`
 	PasswordHash string    `db:"password_hash" json:"-"` // Tanda json:"-" menyembunyikan field ini dari respons JSON
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`

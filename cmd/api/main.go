@@ -125,7 +125,8 @@ func main() {
 			log.Fatalf("File konfigurasi rusak: %v", err)
 		}
 		productStore := store.NewProductStore(db)
-		productHandler := api.NewProductHandler(productStore, &appConfig)
+		mediaStore := store.NewMediaStore(db)
+		productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
 		userHandler := api.NewUserHandler(userStore)
 		userHandler.RegisterRoutes(v1)
 		productHandler.RegisterRoutes(v1)

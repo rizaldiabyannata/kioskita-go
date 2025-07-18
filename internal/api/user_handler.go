@@ -45,7 +45,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Email atau password salah"})
 		return
 	}
-	token, err := auth.GenerateToken(user.ID)
+	token, err := auth.GenerateToken(user.ID.String())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat token"})
 		return

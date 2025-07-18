@@ -2,38 +2,37 @@ package store
 
 import (
 	"database/sql"
-
-	"github.com/rizaldiabyannata/kioskita-go/internal/core" // Ganti 'kioskita' dengan nama modul Go Anda jika berbeda
+	"encoding/json"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/rizaldiabyannata/kioskita-go/internal/core"
 )
 
-// ProductStore menangani semua operasi database yang berkaitan dengan produk.
 type ProductStore struct {
 	db *sqlx.DB
 }
 
-// NewProductStore membuat instance baru dari ProductStore.
 func NewProductStore(db *sqlx.DB) *ProductStore {
 	return &ProductStore{db: db}
 }
 
-// Create menyisipkan produk baru ke dalam database.
-// Sekarang kita juga menyisipkan ID yang sudah dibuat oleh aplikasi.
 func (s *ProductStore) Create(product *core.Product) error {
-	query := `INSERT INTO products (id, name, description, price, stock) 
-              VALUES ($1, $2, $3, $4, $5) 
+
+	if product.Attributes == nil {
+		product.Attributes = json.RawMessage("{}")
+	}
+
+	query := `INSERT INTO products (id, name, description, price, stock, attributes) 
+              VALUES ($1, $2, $3, $4, $5, $6) 
               RETURNING created_at`
 
-	// Kita hanya perlu mendapatkan `created_at` yang dibuat oleh database.
-	// ID sudah ada di dalam struct `product`.
-	return s.db.QueryRowx(query, product.ID, product.Name, product.Description, product.Price, product.Stock).Scan(&product.CreatedAt)
+	return s.db.QueryRowx(query, product.ID, product.Name, product.Description, product.Price, product.Stock, product.Attributes).Scan(&product.CreatedAt)
 }
 
-// GetByID mengambil satu produk dari database berdasarkan ID-nya.
 func (s *ProductStore) GetByID(id string) (*core.Product, error) {
 	var product core.Product
-	query := `SELECT id, name, description, price, stock, created_at FROM products WHERE id = $1`
+
+	query := `SELECT id, name, description, price, stock, created_at, attributes FROM products WHERE id = $1`
 
 	err := s.db.Get(&product, query, id)
 	if err != nil {
@@ -42,10 +41,10 @@ func (s *ProductStore) GetByID(id string) (*core.Product, error) {
 	return &product, nil
 }
 
-// List mengambil semua produk dari database.
 func (s *ProductStore) List() ([]core.Product, error) {
 	var products []core.Product
-	query := `SELECT id, name, description, price, stock, created_at FROM products ORDER BY created_at DESC`
+
+	query := `SELECT id, name, description, price, stock, created_at, attributes FROM products ORDER BY created_at DESC`
 
 	err := s.db.Select(&products, query)
 	if err != nil {
@@ -54,13 +53,16 @@ func (s *ProductStore) List() ([]core.Product, error) {
 	return products, nil
 }
 
-// Update memperbarui data produk yang ada di database.
 func (s *ProductStore) Update(id string, product *core.Product) error {
-	query := `UPDATE products 
-              SET name = $1, description = $2, price = $3, stock = $4 
-              WHERE id = $5`
+	if product.Attributes == nil {
+		product.Attributes = json.RawMessage("{}")
+	}
 
-	result, err := s.db.Exec(query, product.Name, product.Description, product.Price, product.Stock, id)
+	query := `UPDATE products 
+              SET name = $1, description = $2, price = $3, stock = $4, attributes = $5
+              WHERE id = $6`
+
+	result, err := s.db.Exec(query, product.Name, product.Description, product.Price, product.Stock, product.Attributes, id)
 	if err != nil {
 		return err
 	}
@@ -70,7 +72,6 @@ func (s *ProductStore) Update(id string, product *core.Product) error {
 		return err
 	}
 
-	// Jika tidak ada baris yang terpengaruh, berarti produk tidak ditemukan.
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
@@ -78,7 +79,6 @@ func (s *ProductStore) Update(id string, product *core.Product) error {
 	return nil
 }
 
-// Delete menghapus produk dari database berdasarkan ID-nya.
 func (s *ProductStore) Delete(id string) error {
 	query := `DELETE FROM products WHERE id = $1`
 

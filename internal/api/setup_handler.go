@@ -29,7 +29,6 @@ func NewSetupHandler(userStore *store.UserStore, token string, templates map[str
 	}
 }
 
-// GetBusinessTypes menyediakan daftar tipe bisnis yang tersedia untuk frontend.
 func (h *SetupHandler) GetBusinessTypes(c *gin.Context) {
 	type TemplateInfo struct {
 		ID   string `json:"id"`
@@ -42,20 +41,19 @@ func (h *SetupHandler) GetBusinessTypes(c *gin.Context) {
 	c.JSON(http.StatusOK, availableTypes)
 }
 
-// CreateAdmin menangani pembuatan pengguna admin pertama.
 func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 	providedToken := c.GetHeader("X-Setup-Token")
 	if providedToken == "" || providedToken != h.setupToken {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token setup tidak valid atau tidak ada."})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token setup is not valid or missing."})
 		return
 	}
 	count, err := h.userStore.Count()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memeriksa database."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing users."})
 		return
 	}
 	if count > 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin sudah pernah dibuat."})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin user already exists. Please restart the application."})
 		return
 	}
 	var payload core.AdminSetupPayload
@@ -65,21 +63,20 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 	}
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(payload.AdminPassword), bcrypt.DefaultCost)
 	adminUser := &core.User{
-		ID:           uuid.NewString(),
+		ID:           uuid.New(),
 		Email:        payload.AdminEmail,
 		PasswordHash: string(hashedPassword),
 	}
 	if err := h.userStore.Create(adminUser); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat pengguna admin."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin user."})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "Admin berhasil dibuat. Silakan restart aplikasi, lalu login untuk melanjutkan setup toko."})
+	c.JSON(http.StatusCreated, gin.H{"message": "Admin successfully created. Ready to configure the store."})
 }
 
-// ConfigureStore menangani penyimpanan detail konfigurasi toko.
 func (h *SetupHandler) ConfigureStore(c *gin.Context) {
 	if _, err := os.Stat(configFilePath); err == nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Konfigurasi toko sudah pernah dibuat."})
+		c.JSON(http.StatusForbidden, gin.H{"error": "configuration already exists. Please restart the application."})
 		return
 	}
 	var payload core.StoreSetupPayload
@@ -89,7 +86,7 @@ func (h *SetupHandler) ConfigureStore(c *gin.Context) {
 	}
 	template, ok := h.businessTemplates[payload.BusinessTypeID]
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Tipe bisnis tidak valid."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type of business not valid."})
 		return
 	}
 	config := core.StoreConfig{
@@ -100,12 +97,12 @@ func (h *SetupHandler) ConfigureStore(c *gin.Context) {
 	}
 	configData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat file konfigurasi."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal configuration data."})
 		return
 	}
 	if err := ioutil.WriteFile(configFilePath, configData, 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan file konfigurasi."})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write configuration file."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Konfigurasi toko berhasil disimpan. Silakan restart aplikasi untuk masuk ke mode operasional penuh."})
+	c.JSON(http.StatusOK, gin.H{"message": "Canfiguration successful. Please restart the application."})
 }
