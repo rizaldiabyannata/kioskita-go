@@ -20,7 +20,6 @@ import (
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
-// loadBusinessTemplates memuat semua file .json dari direktori /templates.
 func loadBusinessTemplates() (map[string]core.BusinessTemplate, error) {
 	templates := make(map[string]core.BusinessTemplate)
 	templateDir := "./templates"
@@ -77,7 +76,6 @@ func main() {
 	router := gin.Default()
 	userStore := store.NewUserStore(db)
 
-	// Cek keadaan sistem
 	_, configErr := os.Stat("store_config.json")
 	userCount, dbErr := userStore.Count()
 	if dbErr != nil {
@@ -87,7 +85,7 @@ func main() {
 	v1 := router.Group("/api/v1")
 
 	if userCount == 0 {
-		// KEADAAN 1: PRISTINE SETUP (Belum ada admin)
+
 		setupToken := uuid.NewString()
 		log.Println("===================================================================")
 		log.Println("===== APLIKASI DALAM MODE SETUP ADMIN =====")
@@ -99,7 +97,7 @@ func main() {
 		v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
 
 	} else if configErr != nil {
-		// KEADAAN 2: ONBOARDING (Admin ada, config belum)
+
 		log.Println("===================================================================")
 		log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
 		log.Println("Admin sudah ada, menunggu konfigurasi toko.")
@@ -114,7 +112,7 @@ func main() {
 			configRoute.POST("/", setupHandler.ConfigureStore)
 		}
 	} else {
-		// KEADAAN 3: OPERASIONAL (Semua sudah siap)
+
 		log.Println("Aplikasi berjalan dalam MODE OPERASIONAL.")
 		var appConfig core.StoreConfig
 		configData, err := ioutil.ReadFile("store_config.json")
@@ -126,10 +124,13 @@ func main() {
 		}
 		productStore := store.NewProductStore(db)
 		mediaStore := store.NewMediaStore(db)
+		orderStore := store.NewOrderStore(db)
 		productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
 		userHandler := api.NewUserHandler(userStore)
+		orderHandler := api.NewOrderHandler(orderStore, productStore)
 		userHandler.RegisterRoutes(v1)
 		productHandler.RegisterRoutes(v1)
+		orderHandler.RegisterRoutes(v1)
 	}
 
 	router.GET("/health", func(c *gin.Context) {
