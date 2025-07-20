@@ -11,6 +11,8 @@ require (
 	golang.org/x/crypto v0.40.0
 )
 
+require github.com/lib/pq v1.10.9 // indirect
+
 require (
 	github.com/bytedance/sonic v1.13.3 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
