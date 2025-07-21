@@ -1,9 +1,10 @@
--- Deskripsi: Membuat tabel 'users' dan 'products' sebagai fondasi awal.
-
 CREATE TABLE "users" (
     "id" uuid PRIMARY KEY,
     "email" VARCHAR NOT NULL UNIQUE,
     "password_hash" VARCHAR NOT NULL,
+    "role" VARCHAR NOT NULL DEFAULT 'customer' CHECK (
+        "role" IN ('customer', 'admin')
+    ),
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT (now())
 );
 
