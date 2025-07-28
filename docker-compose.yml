@@ -16,6 +16,19 @@ services:
     restart: always
     ports:
       - "6379:6379"
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: kioskita_rabbitmq
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  rabbitmq_data:

@@ -5,9 +5,14 @@ import (
 	"net/http"
 	"time"
 
+	"context"
+	"encoding/json"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/rabbitmq/amqp091-go"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"github.com/rizaldiabyannata/kioskita-go/internal/mq"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
@@ -113,14 +118,48 @@ func (h *OrderHandler) AddItemToCart(c *gin.Context) {
 		return
 	}
 
-	// Recalculate and respond with the updated cart view
-	cartView, err := h.orderStore.GetCartViewByUserID(userIDUUID)
+	// Publish message to RabbitMQ
+	ch, err := mq.RabbitMQ.Channel()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated cart"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open a channel"})
+		return
+	}
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"cart_updates", // name
+		true,           // durable
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to declare a queue"})
 		return
 	}
 
-	c.JSON(http.StatusOK, cartView)
+	body, err := json.Marshal(map[string]string{"user_id": userIDUUID.String()})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal message"})
+		return
+	}
+
+	err = ch.PublishWithContext(context.Background(),
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp091.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to publish a message"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Cart updated successfully"})
 }
 
 func (h *OrderHandler) ViewCart(c *gin.Context) {
