@@ -17,6 +17,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rizaldiabyannata/kioskita-go/internal/api"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"github.com/rizaldiabyannata/kioskita-go/internal/mq"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
@@ -73,6 +74,18 @@ func main() {
 	defer db.Close()
 	log.Println("Berhasil terhubung ke database!")
 
+	mq.InitRabbitMQ()
+	defer mq.CloseRabbitMQ()
+
+	amqpChan, err := mq.RabbitMQ.Channel()
+	if err != nil {
+		log.Fatalf("Failed to open a channel: %s", err)
+	}
+	defer amqpChan.Close()
+
+	hub := api.NewHub()
+	go hub.Run()
+
 	router := gin.Default()
 	userStore := store.NewUserStore(db)
 
@@ -83,6 +96,10 @@ func main() {
 	}
 
 	v1 := router.Group("/api/v1")
+
+	chatStore := store.NewChatStore(db)
+	chatHandler := api.NewChatHandler(chatStore, amqpChan, hub)
+	chatHandler.RegisterRoutes(v1)
 
 	if userCount == 0 {
 
