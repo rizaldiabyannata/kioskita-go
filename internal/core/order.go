@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,12 +19,12 @@ const (
 )
 
 type Order struct {
-	ID              uuid.UUID   `db:"id" json:"id"`
-	UserID          uuid.UUID   `db:"user_id" json:"user_id"`
-	TotalAmount     int64       `db:"total_amount" json:"total_amount"`
-	Status          OrderStatus `db:"status" json:"status"`
-	ShippingAddress []byte      `db:"shipping_address" json:"shipping_address"`
-	CreatedAt       time.Time   `db:"created_at" json:"created_at"`
+	ID              uuid.UUID       `db:"id" json:"id"`
+	UserID          uuid.UUID       `db:"user_id" json:"user_id"`
+	TotalAmount     int64           `db:"total_amount" json:"total_amount"`
+	Status          OrderStatus     `db:"status" json:"status"`
+	ShippingAddress json.RawMessage `db:"shipping_address" json:"shipping_address"` // Diubah ke json.RawMessage
+	CreatedAt       time.Time       `db:"created_at" json:"created_at"`
 }
 
 type OrderItem struct {
@@ -52,4 +53,9 @@ type AddToCartRequest struct {
 
 type UpdateCartItemRequest struct {
 	Quantity int `json:"quantity" binding:"required,gt=0"`
+}
+
+// CheckoutRequest adalah payload yang dikirim oleh user saat checkout
+type CheckoutRequest struct {
+	ShippingAddress json.RawMessage `json:"shipping_address" binding:"required"`
 }

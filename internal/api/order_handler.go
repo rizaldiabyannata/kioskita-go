@@ -5,26 +5,21 @@ import (
 	"net/http"
 	"time"
 
-	"context"
-	"encoding/json"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/rabbitmq/amqp091-go"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
-	"github.com/rizaldiabyannata/kioskita-go/internal/mq"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
 type OrderHandler struct {
-	orderStore   *store.OrderStore
-	productStore *store.ProductStore
+	orderStore *store.OrderStore
+	// Hapus productStore dari sini karena sudah di dalam orderStore
 }
 
-func NewOrderHandler(orderStore *store.OrderStore, productStore *store.ProductStore) *OrderHandler {
+// Ubah NewOrderHandler, tidak perlu productStore lagi
+func NewOrderHandler(orderStore *store.OrderStore) *OrderHandler {
 	return &OrderHandler{
-		orderStore:   orderStore,
-		productStore: productStore,
+		orderStore: orderStore,
 	}
 }
 
@@ -37,6 +32,42 @@ func (h *OrderHandler) RegisterRoutes(router *gin.RouterGroup) {
 		cartRoutes.PUT("/items/:item_id", h.UpdateCartItem)
 		cartRoutes.DELETE("/items/:item_id", h.DeleteCartItem)
 	}
+
+	// Daftarkan grup rute baru untuk checkout
+	checkoutRoutes := router.Group("/checkout")
+	checkoutRoutes.Use(AuthMiddleware())
+	{
+		checkoutRoutes.POST("/", h.Checkout)
+	}
+}
+
+// Handler baru untuk proses checkout
+func (h *OrderHandler) Checkout(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userIDUUID := uuid.MustParse(userID.(string))
+
+	var req core.CheckoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+
+	// Panggil metode checkout dari store
+	order, err := h.orderStore.ProcessCheckout(userIDUUID, req.ShippingAddress)
+	if err != nil {
+		// Cek jenis error untuk memberikan respons yang lebih spesifik
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process checkout: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Checkout successful, order is now pending",
+		"order":   order,
+	})
 }
 
 func (h *OrderHandler) AddItemToCart(c *gin.Context) {
@@ -53,22 +84,11 @@ func (h *OrderHandler) AddItemToCart(c *gin.Context) {
 		return
 	}
 
-	// Check if product exists and has enough stock
-	product, err := h.productStore.GetByID(req.ProductID.String())
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		return
-	}
-	if product.Stock < req.Quantity {
-		c.JSON(http.StatusConflict, gin.H{"error": "Not enough stock"})
-		return
-	}
-
-	// Get or create a cart
+	// Dapatkan keranjang atau buat yang baru
 	order, err := h.orderStore.GetCartByUserID(userIDUUID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// Create a new cart
+			// Buat keranjang baru
 			order = &core.Order{
 				ID:          uuid.New(),
 				UserID:      userIDUUID,
@@ -86,27 +106,23 @@ func (h *OrderHandler) AddItemToCart(c *gin.Context) {
 		}
 	}
 
-	// Check if item already exists in cart
+	// Cek apakah item sudah ada di keranjang
 	existingItem, err := h.orderStore.GetOrderItem(order.ID, req.ProductID)
 	if err == nil {
-		// Item exists, update quantity
+		// Item sudah ada, update kuantitas
 		existingItem.Quantity += req.Quantity
-		if product.Stock < existingItem.Quantity {
-			c.JSON(http.StatusConflict, gin.H{"error": "Not enough stock for updated quantity"})
-			return
-		}
 		if err := h.orderStore.UpdateOrderItem(existingItem); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item in cart"})
 			return
 		}
 	} else if err == sql.ErrNoRows {
-		// Item does not exist, add new item
+		// Item belum ada, tambahkan item baru
 		newItem := &core.OrderItem{
 			ID:              uuid.New(),
 			OrderID:         order.ID,
 			ProductID:       req.ProductID,
 			Quantity:        req.Quantity,
-			PriceAtPurchase: product.Price, // Store price at the moment of adding
+			PriceAtPurchase: 0, // Harga akan dihitung ulang di GetCartView
 			CreatedAt:       time.Now(),
 		}
 		if err := h.orderStore.AddOrderItem(newItem); err != nil {
@@ -118,48 +134,14 @@ func (h *OrderHandler) AddItemToCart(c *gin.Context) {
 		return
 	}
 
-	// Publish message to RabbitMQ
-	ch, err := mq.RabbitMQ.Channel()
+	// Tampilkan kembali keranjang yang sudah diperbarui
+	cartView, err := h.orderStore.GetCartViewByUserID(userIDUUID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open a channel"})
-		return
-	}
-	defer ch.Close()
-
-	q, err := ch.QueueDeclare(
-		"cart_updates", // name
-		true,           // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to declare a queue"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated cart"})
 		return
 	}
 
-	body, err := json.Marshal(map[string]string{"user_id": userIDUUID.String()})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal message"})
-		return
-	}
-
-	err = ch.PublishWithContext(context.Background(),
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
-		false,  // immediate
-		amqp091.Publishing{
-			ContentType: "application/json",
-			Body:        body,
-		})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to publish a message"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Cart updated successfully"})
+	c.JSON(http.StatusOK, cartView)
 }
 
 func (h *OrderHandler) ViewCart(c *gin.Context) {
@@ -204,7 +186,7 @@ func (h *OrderHandler) UpdateCartItem(c *gin.Context) {
 		return
 	}
 
-	// Verify the item belongs to the user's cart
+	// Verifikasi item
 	item, err := h.orderStore.GetOrderItemByID(itemID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found in cart"})
@@ -216,25 +198,13 @@ func (h *OrderHandler) UpdateCartItem(c *gin.Context) {
 		return
 	}
 
-	// Check stock
-	product, err := h.productStore.GetByID(item.ProductID.String())
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product associated with item not found"})
-		return
-	}
-	if product.Stock < req.Quantity {
-		c.JSON(http.StatusConflict, gin.H{"error": "Not enough stock"})
-		return
-	}
-
-	// Update quantity
+	// Update kuantitas
 	item.Quantity = req.Quantity
 	if err := h.orderStore.UpdateOrderItem(item); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item quantity"})
 		return
 	}
 
-	// Recalculate and respond with the updated cart view
 	cartView, err := h.orderStore.GetCartViewByUserID(userIDUUID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated cart"})
@@ -258,7 +228,7 @@ func (h *OrderHandler) DeleteCartItem(c *gin.Context) {
 		return
 	}
 
-	// Verify the item belongs to the user's cart
+	// Verifikasi item
 	item, err := h.orderStore.GetOrderItemByID(itemID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -274,13 +244,12 @@ func (h *OrderHandler) DeleteCartItem(c *gin.Context) {
 		return
 	}
 
-	// Delete the item
+	// Hapus item
 	if err := h.orderStore.DeleteOrderItem(itemID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item from cart"})
 		return
 	}
 
-	// Recalculate and respond with the updated cart view
 	cartView, err := h.orderStore.GetCartViewByUserID(userIDUUID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated cart"})

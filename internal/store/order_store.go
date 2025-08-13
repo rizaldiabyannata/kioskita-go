@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -10,11 +11,16 @@ import (
 )
 
 type OrderStore struct {
-	db *sqlx.DB
+	db           *sqlx.DB
+	productStore *ProductStore // Tambahkan productStore
 }
 
-func NewOrderStore(db *sqlx.DB) *OrderStore {
-	return &OrderStore{db: db}
+// Ubah NewOrderStore untuk menerima ProductStore
+func NewOrderStore(db *sqlx.DB, productStore *ProductStore) *OrderStore {
+	return &OrderStore{
+		db:           db,
+		productStore: productStore,
+	}
 }
 
 // GetCartByUserID finds an active cart for a user.
@@ -84,9 +90,8 @@ func (s *OrderStore) GetCartViewByUserID(userID uuid.UUID) (*core.CartView, erro
 	// 1. Get the active cart order
 	order, err := s.GetCartByUserID(userID)
 	if err != nil {
-		// If no cart exists, return a specific error or nil
 		if err == sql.ErrNoRows {
-			return nil, nil // Or a custom "cart not found" error
+			return nil, nil
 		}
 		return nil, fmt.Errorf("error getting cart: %w", err)
 	}
@@ -108,21 +113,14 @@ func (s *OrderStore) GetCartViewByUserID(userID uuid.UUID) (*core.CartView, erro
 		return cartView, nil
 	}
 
-	// 3. Get product details for each item
-	// This is not the most efficient way (N+1 problem), but it's simple for now.
-	// For production, a single JOIN query would be better.
 	var totalAmount int64
 	for _, item := range items {
 		var product core.Product
 		queryProduct := `SELECT * FROM products WHERE id = $1`
 		err := s.db.Get(&product, queryProduct, item.ProductID)
 		if err != nil {
-			// Handle case where product might be deleted but still in cart
-			// For now, we'll just skip it
 			continue
 		}
-
-		// Recalculate price at this stage
 		item.PriceAtPurchase = product.Price
 		totalAmount += product.Price * int64(item.Quantity)
 
@@ -132,13 +130,11 @@ func (s *OrderStore) GetCartViewByUserID(userID uuid.UUID) (*core.CartView, erro
 		})
 	}
 
-	// 4. Update the total amount of the order
 	if order.TotalAmount != totalAmount {
 		order.TotalAmount = totalAmount
 		queryUpdateTotal := `UPDATE orders SET total_amount = $1 WHERE id = $2`
 		_, err := s.db.Exec(queryUpdateTotal, totalAmount, order.ID)
 		if err != nil {
-			// Log or handle the error, but we can still return the view
 			fmt.Printf("Warning: failed to update total amount for order %s: %v\n", order.ID, err)
 		}
 		cartView.Order.TotalAmount = totalAmount
@@ -156,4 +152,60 @@ func (s *OrderStore) GetOrderItemByID(itemID uuid.UUID) (*core.OrderItem, error)
 		return nil, err
 	}
 	return &item, nil
+}
+
+// ProcessCheckout menangani seluruh logika checkout dalam satu transaksi
+func (s *OrderStore) ProcessCheckout(userID uuid.UUID, shippingAddress json.RawMessage) (*core.Order, error) {
+	// Memulai transaksi
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("gagal memulai transaksi: %w", err)
+	}
+	// Pastikan transaksi di-rollback jika ada error
+	defer tx.Rollback()
+
+	// 1. Ambil keranjang belanja (cart) yang aktif
+	var cart core.Order
+	queryCart := `SELECT * FROM orders WHERE user_id = $1 AND status = $2 FOR UPDATE`
+	if err := tx.Get(&cart, queryCart, userID, core.StatusCart); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("keranjang belanja tidak ditemukan atau kosong")
+		}
+		return nil, fmt.Errorf("gagal mendapatkan keranjang belanja: %w", err)
+	}
+
+	// 2. Ambil semua item di dalam keranjang
+	var items []core.OrderItem
+	queryItems := `SELECT * FROM order_items WHERE order_id = $1`
+	if err := tx.Select(&items, queryItems, cart.ID); err != nil {
+		return nil, fmt.Errorf("gagal mendapatkan item keranjang: %w", err)
+	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("keranjang belanja kosong, tidak bisa checkout")
+	}
+
+	// 3. Validasi stok dan kurangi stok untuk setiap item
+	for _, item := range items {
+		err := s.productStore.UpdateStockTx(tx, item.ProductID.String(), item.Quantity)
+		if err != nil {
+			// Jika error (misal, stok tidak cukup), transaksi akan di-rollback
+			return nil, fmt.Errorf("gagal memproses item %s: %w", item.ProductID, err)
+		}
+	}
+
+	// 4. Update status order menjadi 'pending' dan tambahkan alamat pengiriman
+	cart.Status = core.StatusPending
+	cart.ShippingAddress = shippingAddress
+	queryUpdateOrder := `UPDATE orders SET status = $1, shipping_address = $2 WHERE id = $3`
+	if _, err := tx.Exec(queryUpdateOrder, cart.Status, cart.ShippingAddress, cart.ID); err != nil {
+		return nil, fmt.Errorf("gagal memperbarui status pesanan: %w", err)
+	}
+
+	// Jika semua langkah berhasil, commit transaksi
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("gagal melakukan commit transaksi: %w", err)
+	}
+
+	return &cart, nil
 }

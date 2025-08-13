@@ -17,7 +17,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rizaldiabyannata/kioskita-go/internal/api"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
-	"github.com/rizaldiabyannata/kioskita-go/internal/mq"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 )
 
@@ -74,18 +73,6 @@ func main() {
 	defer db.Close()
 	log.Println("Berhasil terhubung ke database!")
 
-	mq.InitRabbitMQ()
-	defer mq.CloseRabbitMQ()
-
-	amqpChan, err := mq.RabbitMQ.Channel()
-	if err != nil {
-		log.Fatalf("Failed to open a channel: %s", err)
-	}
-	defer amqpChan.Close()
-
-	hub := api.NewHub()
-	go hub.Run()
-
 	router := gin.Default()
 	userStore := store.NewUserStore(db)
 
@@ -96,10 +83,6 @@ func main() {
 	}
 
 	v1 := router.Group("/api/v1")
-
-	chatStore := store.NewChatStore(db)
-	chatHandler := api.NewChatHandler(chatStore, amqpChan, hub)
-	chatHandler.RegisterRoutes(v1)
 
 	if userCount == 0 {
 
@@ -139,12 +122,20 @@ func main() {
 		if err := json.Unmarshal(configData, &appConfig); err != nil {
 			log.Fatalf("File konfigurasi rusak: %v", err)
 		}
+
+		// Inisialisasi semua store
 		productStore := store.NewProductStore(db)
 		mediaStore := store.NewMediaStore(db)
-		orderStore := store.NewOrderStore(db)
+		// Berikan productStore ke NewOrderStore
+		orderStore := store.NewOrderStore(db, productStore)
+
+		// Inisialisasi semua handler
 		productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
 		userHandler := api.NewUserHandler(userStore)
-		orderHandler := api.NewOrderHandler(orderStore, productStore)
+		// Berikan orderStore yang sudah lengkap ke NewOrderHandler
+		orderHandler := api.NewOrderHandler(orderStore)
+
+		// Daftarkan semua rute
 		userHandler.RegisterRoutes(v1)
 		productHandler.RegisterRoutes(v1)
 		orderHandler.RegisterRoutes(v1)

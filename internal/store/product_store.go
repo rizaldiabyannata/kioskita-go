@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
@@ -94,6 +95,28 @@ func (s *ProductStore) Delete(id string) error {
 
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+// UpdateStockTx mengurasi stok produk di dalam sebuah transaksi database
+func (s *ProductStore) UpdateStockTx(tx *sqlx.Tx, productID string, quantityToDecrease int) error {
+	// Ambil produk dengan "FOR UPDATE" untuk mengunci baris dan mencegah race condition
+	var currentStock int
+	err := tx.Get(&currentStock, "SELECT stock FROM products WHERE id = $1 FOR UPDATE", productID)
+	if err != nil {
+		return fmt.Errorf("gagal mendapatkan stok produk: %w", err)
+	}
+
+	if currentStock < quantityToDecrease {
+		return fmt.Errorf("stok tidak cukup untuk produk ID %s", productID)
+	}
+
+	newStock := currentStock - quantityToDecrease
+	_, err = tx.Exec("UPDATE products SET stock = $1 WHERE id = $2", newStock, productID)
+	if err != nil {
+		return fmt.Errorf("gagal memperbarui stok produk: %w", err)
 	}
 
 	return nil
