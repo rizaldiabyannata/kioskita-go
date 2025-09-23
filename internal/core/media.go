@@ -14,9 +14,9 @@ const (
 )
 
 type Media struct {
-	ID        uuid.UUID `db:"id" json:"id"`
-	ProductID uuid.UUID `db:"product_id" json:"product_id"`
-	URL       string    `db:"url" json:"url"`
-	Type      MediaType `db:"type" json:"type"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	ProductID uuid.UUID `gorm:"type:uuid" json:"product_id"`
+	URL       string    `json:"url"`
+	Type      MediaType `json:"type"`
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -18,21 +18,24 @@ const (
 )
 
 type Order struct {
-	ID              uuid.UUID   `db:"id" json:"id"`
-	UserID          uuid.UUID   `db:"user_id" json:"user_id"`
-	TotalAmount     int64       `db:"total_amount" json:"total_amount"`
-	Status          OrderStatus `db:"status" json:"status"`
-	ShippingAddress []byte      `db:"shipping_address" json:"shipping_address"`
-	CreatedAt       time.Time   `db:"created_at" json:"created_at"`
+	ID              uuid.UUID   `gorm:"type:uuid;primary_key;" json:"id"`
+	UserID          uuid.UUID   `gorm:"type:uuid" json:"user_id"`
+	User            User        `gorm:"foreignKey:UserID"`
+	TotalAmount     int64       `json:"total_amount"`
+	Status          OrderStatus `json:"status"`
+	ShippingAddress []byte      `json:"shipping_address"`
+	Items           []OrderItem `gorm:"foreignKey:OrderID"`
+	CreatedAt       time.Time   `json:"created_at"`
 }
 
 type OrderItem struct {
-	ID              uuid.UUID `db:"id" json:"id"`
-	OrderID         uuid.UUID `db:"order_id" json:"order_id"`
-	ProductID       uuid.UUID `db:"product_id" json:"product_id"`
-	Quantity        int       `db:"quantity" json:"quantity"`
-	PriceAtPurchase int64     `db:"price_at_purchase" json:"price_at_purchase"`
-	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	ID              uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	OrderID         uuid.UUID `gorm:"type:uuid" json:"order_id"`
+	ProductID       uuid.UUID `gorm:"type:uuid" json:"product_id"`
+	Product         Product   `gorm:"foreignKey:ProductID"`
+	Quantity        int       `json:"quantity"`
+	PriceAtPurchase int64     `json:"price_at_purchase"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type CartView struct {

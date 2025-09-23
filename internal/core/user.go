@@ -8,11 +8,11 @@ import (
 
 // User merepresentasikan data pengguna di dalam sistem.
 type User struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	Email        string    `db:"email" json:"email"`
-	PasswordHash string    `db:"password_hash" json:"-"` // Tanda json:"-" menyembunyikan field ini dari respons JSON
-	Role         string    `db:"role" json:"role"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	ID           uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	Email        string    `gorm:"unique" json:"email"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type LoginPayload struct {

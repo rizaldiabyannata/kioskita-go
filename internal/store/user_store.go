@@ -1,17 +1,17 @@
 package store
 
 import (
-	"github.com/jmoiron/sqlx"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"gorm.io/gorm"
 )
 
 // UserStore menangani semua operasi database yang berkaitan dengan pengguna.
 type UserStore struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
 // NewUserStore membuat instance baru dari UserStore.
-func NewUserStore(db *sqlx.DB) *UserStore {
+func NewUserStore(db *gorm.DB) *UserStore {
 	return &UserStore{db: db}
 }
 
@@ -20,15 +20,13 @@ func (s *UserStore) Create(user *core.User) error {
 	if user.Role == "" {
 		user.Role = "customer"
 	}
-	query := `INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING created_at`
-	return s.db.QueryRowx(query, user.ID, user.Email, user.PasswordHash, user.Role).Scan(&user.CreatedAt)
+	return s.db.Create(user).Error
 }
 
 // GetByEmail mengambil user dari database berdasarkan email.
 func (s *UserStore) GetByEmail(email string) (*core.User, error) {
 	var user core.User
-	query := `SELECT id, email, password_hash, role, created_at FROM users WHERE email = $1`
-	err := s.db.Get(&user, query, email)
+	err := s.db.Where("email = ?", email).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +36,7 @@ func (s *UserStore) GetByEmail(email string) (*core.User, error) {
 // FindAll mengambil semua user dari database.
 func (s *UserStore) FindAll() ([]core.User, error) {
 	var users []core.User
-	query := `SELECT id, email, role, created_at FROM users`
-	err := s.db.Select(&users, query)
+	err := s.db.Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +46,7 @@ func (s *UserStore) FindAll() ([]core.User, error) {
 // FindByID mengambil user dari database berdasarkan ID.
 func (s *UserStore) FindByID(id string) (*core.User, error) {
 	var user core.User
-	query := `SELECT id, email, role, created_at FROM users WHERE id = $1`
-	err := s.db.Get(&user, query, id)
+	err := s.db.Where("id = ?", id).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -59,25 +55,20 @@ func (s *UserStore) FindByID(id string) (*core.User, error) {
 
 // Update memperbarui user di database.
 func (s *UserStore) Update(user *core.User) error {
-	query := `UPDATE users SET email = $1 WHERE id = $2`
-	_, err := s.db.Exec(query, user.Email, user.ID)
-	return err
+	return s.db.Save(user).Error
 }
 
 // Delete menghapus user dari database.
 func (s *UserStore) Delete(id string) error {
-	query := `DELETE FROM users WHERE id = $1`
-	_, err := s.db.Exec(query, id)
-	return err
+	return s.db.Delete(&core.User{}, "id = ?", id).Error
 }
 
 // Count mengembalikan jumlah total pengguna di database.
 func (s *UserStore) Count() (int, error) {
-	var count int
-	query := `SELECT COUNT(*) FROM users`
-	err := s.db.Get(&count, query)
+	var count int64
+	err := s.db.Model(&core.User{}).Count(&count).Error
 	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }

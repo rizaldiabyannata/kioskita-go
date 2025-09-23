@@ -12,12 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 	"github.com/rizaldiabyannata/kioskita-go/internal/api"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func loadBusinessTemplates() (map[string]core.BusinessTemplate, error) {
@@ -66,11 +66,14 @@ func main() {
 		os.Getenv("DB_NAME"),
 		os.Getenv("DB_SSL_MODE"),
 	)
-	db, err := sqlx.Connect("pgx", dsn)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Gagal terhubung ke database: %v", err)
 	}
-	defer db.Close()
+
+	// Auto-migrate the schema
+	db.AutoMigrate(&core.User{}, &core.Product{}, &core.Order{}, &core.OrderItem{}, &core.Media{})
+
 	log.Println("Berhasil terhubung ke database!")
 
 	router := gin.Default()

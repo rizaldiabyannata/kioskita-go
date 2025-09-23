@@ -4,15 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"gorm.io/gorm"
 )
 
 type ProductStore struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewProductStore(db *sqlx.DB) *ProductStore {
+func NewProductStore(db *gorm.DB) *ProductStore {
 	return &ProductStore{db: db}
 }
 
@@ -22,19 +22,12 @@ func (s *ProductStore) Create(product *core.Product) error {
 		product.Attributes = json.RawMessage("{}")
 	}
 
-	query := `INSERT INTO products (id, name, description, price, stock, attributes) 
-              VALUES ($1, $2, $3, $4, $5, $6) 
-              RETURNING created_at`
-
-	return s.db.QueryRowx(query, product.ID, product.Name, product.Description, product.Price, product.Stock, product.Attributes).Scan(&product.CreatedAt)
+	return s.db.Create(product).Error
 }
 
 func (s *ProductStore) GetByID(id string) (*core.Product, error) {
 	var product core.Product
-
-	query := `SELECT id, name, description, price, stock, created_at, attributes FROM products WHERE id = $1`
-
-	err := s.db.Get(&product, query, id)
+	err := s.db.Preload("Media").First(&product, "id = ?", id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -43,10 +36,7 @@ func (s *ProductStore) GetByID(id string) (*core.Product, error) {
 
 func (s *ProductStore) List() ([]core.Product, error) {
 	var products []core.Product
-
-	query := `SELECT id, name, description, price, stock, created_at, attributes FROM products ORDER BY created_at DESC`
-
-	err := s.db.Select(&products, query)
+	err := s.db.Preload("Media").Order("created_at DESC").Find(&products).Error
 	if err != nil {
 		return nil, err
 	}
@@ -58,21 +48,12 @@ func (s *ProductStore) Update(id string, product *core.Product) error {
 		product.Attributes = json.RawMessage("{}")
 	}
 
-	query := `UPDATE products 
-              SET name = $1, description = $2, price = $3, stock = $4, attributes = $5
-              WHERE id = $6`
-
-	result, err := s.db.Exec(query, product.Name, product.Description, product.Price, product.Stock, product.Attributes, id)
-	if err != nil {
-		return err
+	result := s.db.Model(&core.Product{}).Where("id = ?", id).Updates(product)
+	if result.Error != nil {
+		return result.Error
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return sql.ErrNoRows
 	}
 
@@ -80,19 +61,12 @@ func (s *ProductStore) Update(id string, product *core.Product) error {
 }
 
 func (s *ProductStore) Delete(id string) error {
-	query := `DELETE FROM products WHERE id = $1`
-
-	result, err := s.db.Exec(query, id)
-	if err != nil {
-		return err
+	result := s.db.Delete(&core.Product{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected == 0 {
+	if result.RowsAffected == 0 {
 		return sql.ErrNoRows
 	}
 

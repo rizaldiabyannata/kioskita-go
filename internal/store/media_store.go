@@ -1,27 +1,24 @@
 package store
 
 import (
-	"github.com/jmoiron/sqlx"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"gorm.io/gorm"
 )
 
 type MediaStore struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewMediaStore(db *sqlx.DB) *MediaStore {
+func NewMediaStore(db *gorm.DB) *MediaStore {
 	return &MediaStore{db: db}
 }
 
 func (s *MediaStore) Create(media *core.Media) error {
-	query := `INSERT INTO media (id, product_id, url, type) VALUES ($1, $2, $3, $4)`
-	_, err := s.db.Exec(query, media.ID, media.ProductID, media.URL, media.Type)
-	return err
+	return s.db.Create(media).Error
 }
 
 func (s *MediaStore) GetByProductID(productID string) ([]core.Media, error) {
 	var media []core.Media
-	query := `SELECT id, product_id, url, type, created_at FROM media WHERE product_id = $1`
-	err := s.db.Select(&media, query, productID)
+	err := s.db.Where("product_id = ?", productID).Find(&media).Error
 	return media, err
 }

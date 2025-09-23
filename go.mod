@@ -5,13 +5,17 @@ go 1.24.1
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.5.5
-	github.com/jmoiron/sqlx v1.3.5
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.40.0
+	gorm.io/driver/postgres v1.6.0
+	gorm.io/gorm v1.31.0
 )
 
-require github.com/lib/pq v1.10.9 // indirect
+require (
+	github.com/jackc/pgx/v5 v5.6.0 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
+)
 
 require (
 	github.com/bytedance/sonic v1.13.3 // indirect

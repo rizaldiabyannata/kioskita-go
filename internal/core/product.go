@@ -8,14 +8,15 @@ import (
 )
 
 type Product struct {
-	ID          uuid.UUID `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name" binding:"required"`
-	Description string    `db:"description" json:"description"`
-	Price       int64     `db:"price" json:"price" binding:"required,gte=0"`
-	Stock       int       `db:"stock" json:"stock" binding:"required,gte=0"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	ID          uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	Name        string    `json:"name" binding:"required"`
+	Description string    `json:"description"`
+	Price       int64     `json:"price" binding:"required,gte=0"`
+	Stock       int       `json:"stock" binding:"required,gte=0"`
+	CreatedAt   time.Time `json:"created_at"`
 
-	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
+	Attributes json.RawMessage `json:"attributes,omitempty"`
+	Media      []Media         `gorm:"foreignKey:ProductID" json:"media"` // Daftar media yang terkait
 }
 
 type ProductDetail struct {
