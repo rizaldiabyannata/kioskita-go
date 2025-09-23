@@ -4,67 +4,58 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
-type OrderStatus string
-
-const (
-	StatusCart     OrderStatus = "cart"
-	StatusPending  OrderStatus = "pending"
-	StatusPaid     OrderStatus = "paid"
-	StatusShipped  OrderStatus = "shipped"
-	StatusComplete OrderStatus = "complete"
-	StatusCanceled OrderStatus = "canceled"
-)
-
-// ShippingAddress menyimpan alamat pengiriman sebagai kolom SQL normal (bukan JSON/NoSQL)
-type ShippingAddress struct {
-	RecipientName string `json:"recipient_name"`
-	Phone         string `json:"phone"`
-	AddressLine1  string `json:"address_line1"`
-	AddressLine2  string `json:"address_line2"`
-	City          string `json:"city"`
-	State         string `json:"state"`
-	PostalCode    string `json:"postal_code"`
-	Country       string `json:"country"`
-}
-
+// Order represents a customer's order
 type Order struct {
-	ID              uuid.UUID       `gorm:"type:uuid;primaryKey;" json:"id"`
-	UserID          uuid.UUID       `gorm:"type:uuid" json:"user_id"`
-	User            User            `gorm:"foreignKey:UserID"`
-	TotalAmount     int64           `json:"total_amount"`
-	Status          OrderStatus     `json:"status"`
-	ShippingAddress ShippingAddress `gorm:"embedded;embeddedPrefix:ship_" json:"shipping_address"`
-	Items           []OrderItem     `gorm:"foreignKey:OrderID"`
-	CreatedAt       time.Time       `json:"created_at"`
+	ID            uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
+	OrderNumber   string          `gorm:"column:order_number;unique;not null" json:"order_number"`
+	OrderDate     time.Time       `gorm:"column:order_date;default:CURRENT_TIMESTAMP" json:"order_date"`
+	Status        string          `gorm:"not null" json:"status"`
+	Subtotal      decimal.Decimal `gorm:"type:decimal(12,2);not null" json:"subtotal"`
+	TotalDiscount decimal.Decimal `gorm:"column:total_discount;type:decimal(12,2);not null" json:"total_discount"`
+	TotalFinal    decimal.Decimal `gorm:"column:total_final;type:decimal(12,2);not null" json:"total_final"`
+	VoucherID     *uuid.UUID      `gorm:"type:uuid;column:voucher_id" json:"voucher_id"` // Pointer for nullable
+	Voucher       *Voucher        `json:"voucher,omitempty"`
+	OrderDetails  []OrderDetail   `json:"order_details,omitempty"`
+	Payments      []Payment       `json:"payments,omitempty"`
+	Delivery      *Delivery       `json:"delivery,omitempty"`
 }
 
-type OrderItem struct {
-	ID              uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
-	OrderID         uuid.UUID `gorm:"type:uuid" json:"order_id"`
-	ProductID       uuid.UUID `gorm:"type:uuid" json:"product_id"`
-	Product         Product   `gorm:"foreignKey:ProductID"`
-	Quantity        int       `json:"quantity"`
-	PriceAtPurchase int64     `json:"price_at_purchase"`
-	CreatedAt       time.Time `json:"created_at"`
+// TableName sets the table name for the Order model
+func (Order) TableName() string {
+	return "orders"
 }
 
-type CartView struct {
-	Order
-	Items []CartItemView `json:"items"`
+// OrderDetail represents a single item within an order
+type OrderDetail struct {
+	ID           uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
+	Quantity     int             `gorm:"not null" json:"quantity"`
+	PriceAtOrder decimal.Decimal `gorm:"column:price_at_order;type:decimal(12,2);not null" json:"price_at_order"`
+	OrderID      uuid.UUID       `gorm:"type:uuid;column:order_id;not null" json:"order_id"`
+	VariantID    uuid.UUID       `gorm:"type:uuid;column:variant_id;not null" json:"variant_id"`
+	Order        Order           `json:"-"`
+	Variant      ProductVariant  `json:"variant"`
 }
 
-type CartItemView struct {
-	OrderItem
-	Product Product `json:"product"`
+// TableName sets the table name for the OrderDetail model
+func (OrderDetail) TableName() string {
+	return "order_details"
 }
 
-type AddToCartRequest struct {
-	ProductID uuid.UUID `json:"product_id" binding:"required"`
-	Quantity  int       `json:"quantity" binding:"required,gt=0"`
+// BeforeCreate hooks for order models
+func (o *Order) BeforeCreate(tx *gorm.DB) (err error) {
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
+	return
 }
 
-type UpdateCartItemRequest struct {
-	Quantity int `json:"quantity" binding:"required,gt=0"`
+func (od *OrderDetail) BeforeCreate(tx *gorm.DB) (err error) {
+	if od.ID == uuid.Nil {
+		od.ID = uuid.New()
+	}
+	return
 }

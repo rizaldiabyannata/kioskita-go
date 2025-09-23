@@ -1,43 +1,75 @@
 package core
 
 import (
-	"time"
-
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
+// Product represents the main product entity
 type Product struct {
-	ID          uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
-	Name        string    `json:"name" binding:"required"`
-	Description string    `json:"description"`
-	Price       int64     `json:"price" binding:"required,gte=0"`
-	Stock       int       `json:"stock" binding:"required,gte=0"`
-	CreatedAt   time.Time `json:"created_at"`
-	Media       []Media   `gorm:"foreignKey:ProductID" json:"media"` // Daftar media yang terkait
+	ID          uuid.UUID        `gorm:"type:uuid;primaryKey" json:"id"`
+	Name        string           `gorm:"not null" json:"name"`
+	Description string           `json:"description"`
+	CategoryID  uuid.UUID        `gorm:"type:uuid;column:category_id;not null" json:"category_id"`
+	Category    Category         `json:"category"`
+	Variants    []ProductVariant `json:"variants,omitempty"`
+	Images      []ProductImage   `json:"images,omitempty"`
 }
 
-type ProductDetail struct {
-	Product                   // "Embedding" struct Product di sini
-	Media    []*Media         `json:"media"` // Daftar media yang terkait
-	Clothing *ClothingProduct `json:"clothing,omitempty"`
-	Food     *FoodProduct     `json:"food,omitempty"`
+// TableName sets the table name for the Product model
+func (Product) TableName() string {
+	return "products"
 }
 
-// Clothing specific attributes (normalized, no JSON/BSON)
-type ClothingProduct struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
-	ProductID uuid.UUID `gorm:"type:uuid;uniqueIndex" json:"product_id"`
-	Warna     string    `json:"warna"`
-	Ukuran    string    `json:"ukuran"` // e.g., S, M, L, XL, XXL
-	Bahan     string    `json:"bahan"`
-	CreatedAt time.Time `json:"created_at"`
+// ProductVariant represents a specific variant of a product
+type ProductVariant struct {
+	ID        uuid.UUID       `gorm:"type:uuid;primaryKey" json:"id"`
+	Name      string          `gorm:"not null" json:"name"`
+	Sku       string          `gorm:"unique;not null" json:"sku"`
+	Price     decimal.Decimal `gorm:"type:decimal(12,2);not null" json:"price"`
+	Stock     int             `gorm:"not null" json:"stock"`
+	ProductID uuid.UUID       `gorm:"type:uuid;column:product_id;not null" json:"product_id"`
+	Product   Product         `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE;" json:"-"`
 }
 
-// Food/Drink specific attributes (normalized)
-type FoodProduct struct {
-	ID          uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
-	ProductID   uuid.UUID `gorm:"type:uuid;uniqueIndex" json:"product_id"`
-	AsalBiji    string    `json:"asal_biji"`
-	LevelGiling string    `json:"level_giling"` // e.g., Biji Utuh, Kasar, Medium, Halus
-	CreatedAt   time.Time `json:"created_at"`
+// TableName sets the table name for the ProductVariant model
+func (ProductVariant) TableName() string {
+	return "product_variants"
+}
+
+// ProductImage represents an image associated with a product
+type ProductImage struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	ImageURL  string    `gorm:"column:image_url;not null" json:"image_url"`
+	IsMain    bool      `gorm:"column:is_main;default:false" json:"is_main"`
+	ProductID uuid.UUID `gorm:"type:uuid;column:product_id;not null" json:"product_id"`
+	Product   Product   `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE;" json:"-"`
+}
+
+// TableName sets the table name for the ProductImage model
+func (ProductImage) TableName() string {
+	return "product_images"
+}
+
+// BeforeCreate hooks for product models
+func (p *Product) BeforeCreate(tx *gorm.DB) (err error) {
+	if p.ID == uuid.Nil {
+		p.ID = uuid.New()
+	}
+	return
+}
+
+func (pv *ProductVariant) BeforeCreate(tx *gorm.DB) (err error) {
+	if pv.ID == uuid.Nil {
+		pv.ID = uuid.New()
+	}
+	return
+}
+
+func (pi *ProductImage) BeforeCreate(tx *gorm.DB) (err error) {
+	if pi.ID == uuid.Nil {
+		pi.ID = uuid.New()
+	}
+	return
 }

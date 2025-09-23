@@ -10,20 +10,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const configFilePath = "store_config.json"
 
 type SetupHandler struct {
-	userStore         *store.UserStore
+	adminStore        *store.AdminStore
 	setupToken        string
 	businessTemplates map[string]core.BusinessTemplate
 }
 
-func NewSetupHandler(userStore *store.UserStore, token string, templates map[string]core.BusinessTemplate) *SetupHandler {
+func NewSetupHandler(adminStore *store.AdminStore, token string, templates map[string]core.BusinessTemplate) *SetupHandler {
 	return &SetupHandler{
-		userStore:         userStore,
+		adminStore:        adminStore,
 		setupToken:        token,
 		businessTemplates: templates,
 	}
@@ -47,7 +46,7 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token setup is not valid or missing."})
 		return
 	}
-	count, err := h.userStore.Count()
+	count, err := h.adminStore.Count()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing users."})
 		return
@@ -61,13 +60,20 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(payload.AdminPassword), bcrypt.DefaultCost)
-	adminUser := &core.User{
-		ID:           uuid.New(),
-		Email:        payload.AdminEmail,
-		PasswordHash: string(hashedPassword),
+
+	admin := &core.Admin{
+		ID:    uuid.New(),
+		Name:  "Default Admin", // Or get from payload
+		Email: payload.AdminEmail,
+		Role:  core.SuperAdminRole, // First user is Super Admin
 	}
-	if err := h.userStore.Create(adminUser); err != nil {
+
+	if err := admin.HashPassword(payload.AdminPassword); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	if err := h.adminStore.CreateAdmin(admin); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create admin user."})
 		return
 	}

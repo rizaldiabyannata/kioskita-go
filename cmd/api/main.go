@@ -15,8 +15,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rizaldiabyannata/kioskita-go/internal/api"
 	"github.com/rizaldiabyannata/kioskita-go/internal/core"
+	"github.com/rizaldiabyannata/kioskita-go/internal/service"
 	"github.com/rizaldiabyannata/kioskita-go/internal/store"
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -58,39 +60,56 @@ func main() {
 		log.Fatalf("Kritis: Gagal memuat template bisnis: %v", err)
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		os.Getenv("DB_HOST"),
-		os.Getenv("DB_PORT"),
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_NAME"),
-		os.Getenv("DB_SSL_MODE"),
-	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatalf("Gagal terhubung ke database: %v", err)
+	var db *gorm.DB
+	dbDriver := os.Getenv("DB_DRIVER")
+	if dbDriver == "" {
+		dbDriver = "postgres" // Default to postgres
 	}
 
-	// Ensure user table exists for setup flow
-	if err := db.AutoMigrate(&core.User{}); err != nil {
-		log.Fatalf("Gagal membuat/memigrasi tabel user: %v", err)
+	log.Printf("Menggunakan database driver: %s", dbDriver)
+
+	switch dbDriver {
+	case "postgres":
+		dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			os.Getenv("DB_HOST"),
+			os.Getenv("DB_PORT"),
+			os.Getenv("DB_USER"),
+			os.Getenv("DB_PASSWORD"),
+			os.Getenv("DB_NAME"),
+			os.Getenv("DB_SSL_MODE"),
+		)
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	case "sqlite":
+		db, err = gorm.Open(sqlite.Open("kioskita_dev.db"), &gorm.Config{})
+	default:
+		log.Fatalf("Database driver tidak didukung: %s", dbDriver)
+	}
+
+	if err != nil {
+		log.Fatalf("Gagal terhubung ke database: %v", err)
 	}
 
 	// Basic connectivity message
 	log.Println("Berhasil terhubung ke database!")
 
+	// Run database migrations
+	if err := store.AutoMigrateDB(db); err != nil {
+		log.Fatalf("Gagal melakukan migrasi database: %v", err)
+	}
+	log.Println("Migrasi database berhasil.")
+
 	router := gin.Default()
-	userStore := store.NewUserStore(db)
+	adminStore := store.NewAdminStore(db)
 
 	_, configErr := os.Stat("store_config.json")
-	userCount, dbErr := userStore.Count()
+	adminCount, dbErr := adminStore.Count()
 	if dbErr != nil {
 		log.Fatalf("Kritis: Gagal memeriksa database saat startup: %v", dbErr)
 	}
 
 	v1 := router.Group("/api/v1")
 
-	if userCount == 0 {
+	if adminCount == 0 {
 
 		setupToken := uuid.NewString()
 		log.Println("===================================================================")
@@ -98,7 +117,7 @@ func main() {
 		log.Printf("===> SETUP TOKEN: %s", setupToken)
 		log.Println("Gunakan token di atas pada header 'X-Setup-Token' untuk otorisasi.")
 		log.Println("===================================================================")
-		setupHandler := api.NewSetupHandler(userStore, setupToken, businessTemplates)
+		setupHandler := api.NewSetupHandler(adminStore, setupToken, businessTemplates)
 		v1.POST("/setup/admin", setupHandler.CreateAdmin)
 		v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
 
@@ -110,9 +129,9 @@ func main() {
 			log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
 			log.Println("Admin sudah ada, menunggu konfigurasi toko.")
 			log.Println("===================================================================")
-			setupHandler := api.NewSetupHandler(userStore, "", businessTemplates)
-			userHandler := api.NewUserHandler(userStore)
-			v1.POST("/login", userHandler.Login)
+			setupHandler := api.NewSetupHandler(adminStore, "", businessTemplates)
+			adminHandler := api.NewAdminHandler(adminStore)
+			adminHandler.RegisterRoutes(v1)
 			v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
 			configRoute := v1.Group("/setup/config")
 			configRoute.Use(api.AuthMiddleware())
@@ -136,9 +155,9 @@ func main() {
 				log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
 				log.Println("Admin sudah ada, menunggu konfigurasi toko (config belum lengkap).")
 				log.Println("===================================================================")
-				setupHandler := api.NewSetupHandler(userStore, "", businessTemplates)
-				userHandler := api.NewUserHandler(userStore)
-				v1.POST("/login", userHandler.Login)
+				setupHandler := api.NewSetupHandler(adminStore, "", businessTemplates)
+				adminHandler := api.NewAdminHandler(adminStore)
+				adminHandler.RegisterRoutes(v1)
 				v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
 				configRoute := v1.Group("/setup/config")
 				configRoute.Use(api.AuthMiddleware())
@@ -148,18 +167,23 @@ func main() {
 			} else {
 				// Konfigurasi lengkap => Mode Operasional
 				log.Println("Aplikasi berjalan dalam MODE OPERASIONAL.")
-				// Ensure schema matches the selected business type (normalized, no JSON attributes)
-				if err := store.SetupSchema(db, appConfig); err != nil {
-					log.Fatalf("Gagal menyiapkan skema database: %v", err)
-				}
 
+				// Instantiate Stores
 				productStore := store.NewProductStore(db)
-				mediaStore := store.NewMediaStore(db)
 				orderStore := store.NewOrderStore(db)
-				productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
-				userHandler := api.NewUserHandler(userStore)
-				orderHandler := api.NewOrderHandler(orderStore, productStore)
-				userHandler.RegisterRoutes(v1)
+				categoryStore := store.NewCategoryStore(db)
+				voucherStore := store.NewVoucherStore(db)
+
+				// Instantiate Services
+				orderService := service.NewOrderService(db, orderStore, productStore, voucherStore)
+
+				// Instantiate Handlers
+				adminHandler := api.NewAdminHandler(adminStore)
+				productHandler := api.NewProductHandler(productStore, categoryStore)
+				orderHandler := api.NewOrderHandler(orderService, orderStore)
+
+				// Register Routes
+				adminHandler.RegisterRoutes(v1)
 				productHandler.RegisterRoutes(v1)
 				orderHandler.RegisterRoutes(v1)
 			}
