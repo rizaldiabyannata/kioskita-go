@@ -71,9 +71,12 @@ func main() {
 		log.Fatalf("Gagal terhubung ke database: %v", err)
 	}
 
-	// Auto-migrate the schema
-	db.AutoMigrate(&core.User{}, &core.Product{}, &core.Order{}, &core.OrderItem{}, &core.Media{})
+	// Ensure user table exists for setup flow
+	if err := db.AutoMigrate(&core.User{}); err != nil {
+		log.Fatalf("Gagal membuat/memigrasi tabel user: %v", err)
+	}
 
+	// Basic connectivity message
 	log.Println("Berhasil terhubung ke database!")
 
 	router := gin.Default()
@@ -99,41 +102,68 @@ func main() {
 		v1.POST("/setup/admin", setupHandler.CreateAdmin)
 		v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
 
-	} else if configErr != nil {
-
-		log.Println("===================================================================")
-		log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
-		log.Println("Admin sudah ada, menunggu konfigurasi toko.")
-		log.Println("===================================================================")
-		setupHandler := api.NewSetupHandler(userStore, "", businessTemplates)
-		userHandler := api.NewUserHandler(userStore)
-		v1.POST("/login", userHandler.Login)
-		v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
-		configRoute := v1.Group("/setup/config")
-		configRoute.Use(api.AuthMiddleware())
-		{
-			configRoute.POST("/", setupHandler.ConfigureStore)
-		}
 	} else {
+		// Admin sudah ada. Tentukan mode berdasarkan keberadaan dan kelengkapan store_config.json
+		if configErr != nil {
+			// File konfigurasi tidak ada => Mode Konfigurasi
+			log.Println("===================================================================")
+			log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
+			log.Println("Admin sudah ada, menunggu konfigurasi toko.")
+			log.Println("===================================================================")
+			setupHandler := api.NewSetupHandler(userStore, "", businessTemplates)
+			userHandler := api.NewUserHandler(userStore)
+			v1.POST("/login", userHandler.Login)
+			v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
+			configRoute := v1.Group("/setup/config")
+			configRoute.Use(api.AuthMiddleware())
+			{
+				configRoute.POST("/", setupHandler.ConfigureStore)
+			}
+		} else {
+			// File ada: cek kelengkapan isian
+			var appConfig core.StoreConfig
+			configData, err := ioutil.ReadFile("store_config.json")
+			if err != nil {
+				log.Fatalf("Gagal membaca file konfigurasi: %v", err)
+			}
+			if err := json.Unmarshal(configData, &appConfig); err != nil {
+				log.Fatalf("File konfigurasi rusak: %v", err)
+			}
 
-		log.Println("Aplikasi berjalan dalam MODE OPERASIONAL.")
-		var appConfig core.StoreConfig
-		configData, err := ioutil.ReadFile("store_config.json")
-		if err != nil {
-			log.Fatalf("Gagal membaca file konfigurasi: %v", err)
+			if !appConfig.SetupComplete || appConfig.BusinessTypeID == "" {
+				// Konfigurasi belum lengkap => Mode Konfigurasi
+				log.Println("===================================================================")
+				log.Println("===== APLIKASI DALAM MODE KONFIGURASI TOKO =====")
+				log.Println("Admin sudah ada, menunggu konfigurasi toko (config belum lengkap).")
+				log.Println("===================================================================")
+				setupHandler := api.NewSetupHandler(userStore, "", businessTemplates)
+				userHandler := api.NewUserHandler(userStore)
+				v1.POST("/login", userHandler.Login)
+				v1.GET("/setup/business-types", setupHandler.GetBusinessTypes)
+				configRoute := v1.Group("/setup/config")
+				configRoute.Use(api.AuthMiddleware())
+				{
+					configRoute.POST("/", setupHandler.ConfigureStore)
+				}
+			} else {
+				// Konfigurasi lengkap => Mode Operasional
+				log.Println("Aplikasi berjalan dalam MODE OPERASIONAL.")
+				// Ensure schema matches the selected business type (normalized, no JSON attributes)
+				if err := store.SetupSchema(db, appConfig); err != nil {
+					log.Fatalf("Gagal menyiapkan skema database: %v", err)
+				}
+
+				productStore := store.NewProductStore(db)
+				mediaStore := store.NewMediaStore(db)
+				orderStore := store.NewOrderStore(db)
+				productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
+				userHandler := api.NewUserHandler(userStore)
+				orderHandler := api.NewOrderHandler(orderStore, productStore)
+				userHandler.RegisterRoutes(v1)
+				productHandler.RegisterRoutes(v1)
+				orderHandler.RegisterRoutes(v1)
+			}
 		}
-		if err := json.Unmarshal(configData, &appConfig); err != nil {
-			log.Fatalf("File konfigurasi rusak: %v", err)
-		}
-		productStore := store.NewProductStore(db)
-		mediaStore := store.NewMediaStore(db)
-		orderStore := store.NewOrderStore(db)
-		productHandler := api.NewProductHandler(productStore, mediaStore, &appConfig)
-		userHandler := api.NewUserHandler(userStore)
-		orderHandler := api.NewOrderHandler(orderStore, productStore)
-		userHandler.RegisterRoutes(v1)
-		productHandler.RegisterRoutes(v1)
-		orderHandler.RegisterRoutes(v1)
 	}
 
 	router.GET("/health", func(c *gin.Context) {

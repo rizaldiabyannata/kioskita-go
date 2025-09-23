@@ -50,3 +50,5 @@ Thumbs.db
 *.out
 
 /uploads/
+
+store_config.json

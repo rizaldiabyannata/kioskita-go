@@ -8,7 +8,7 @@ import (
 
 // User merepresentasikan data pengguna di dalam sistem.
 type User struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
 	Email        string    `gorm:"unique" json:"email"`
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"`

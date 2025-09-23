@@ -11,10 +11,11 @@ type AttributeSchema struct {
 
 // StoreConfig adalah struktur utama untuk file store_config.json.
 type StoreConfig struct {
-	StoreName     string            `json:"storeName"`
-	BusinessType  string            `json:"businessType"`
-	SetupComplete bool              `json:"setupComplete"`
-	ProductSchema []AttributeSchema `json:"productSchema"`
+	StoreName      string            `json:"storeName"`
+	BusinessType   string            `json:"businessType"`   // Human-readable name, e.g. "Toko Pakaian & Fashion"
+	BusinessTypeID string            `json:"businessTypeID"` // Template key, e.g. "clothing" or "cafe"
+	SetupComplete  bool              `json:"setupComplete"`
+	ProductSchema  []AttributeSchema `json:"productSchema"`
 }
 
 // AdminSetupPayload adalah data yang dibutuhkan untuk membuat admin pertama.

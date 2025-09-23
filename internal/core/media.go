@@ -14,7 +14,7 @@ const (
 )
 
 type Media struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
 	ProductID uuid.UUID `gorm:"type:uuid" json:"product_id"`
 	URL       string    `json:"url"`
 	Type      MediaType `json:"type"`

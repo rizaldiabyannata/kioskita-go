@@ -17,19 +17,31 @@ const (
 	StatusCanceled OrderStatus = "canceled"
 )
 
+// ShippingAddress menyimpan alamat pengiriman sebagai kolom SQL normal (bukan JSON/NoSQL)
+type ShippingAddress struct {
+	RecipientName string `json:"recipient_name"`
+	Phone         string `json:"phone"`
+	AddressLine1  string `json:"address_line1"`
+	AddressLine2  string `json:"address_line2"`
+	City          string `json:"city"`
+	State         string `json:"state"`
+	PostalCode    string `json:"postal_code"`
+	Country       string `json:"country"`
+}
+
 type Order struct {
-	ID              uuid.UUID   `gorm:"type:uuid;primary_key;" json:"id"`
-	UserID          uuid.UUID   `gorm:"type:uuid" json:"user_id"`
-	User            User        `gorm:"foreignKey:UserID"`
-	TotalAmount     int64       `json:"total_amount"`
-	Status          OrderStatus `json:"status"`
-	ShippingAddress []byte      `json:"shipping_address"`
-	Items           []OrderItem `gorm:"foreignKey:OrderID"`
-	CreatedAt       time.Time   `json:"created_at"`
+	ID              uuid.UUID       `gorm:"type:uuid;primaryKey;" json:"id"`
+	UserID          uuid.UUID       `gorm:"type:uuid" json:"user_id"`
+	User            User            `gorm:"foreignKey:UserID"`
+	TotalAmount     int64           `json:"total_amount"`
+	Status          OrderStatus     `json:"status"`
+	ShippingAddress ShippingAddress `gorm:"embedded;embeddedPrefix:ship_" json:"shipping_address"`
+	Items           []OrderItem     `gorm:"foreignKey:OrderID"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 type OrderItem struct {
-	ID              uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey;" json:"id"`
 	OrderID         uuid.UUID `gorm:"type:uuid" json:"order_id"`
 	ProductID       uuid.UUID `gorm:"type:uuid" json:"product_id"`
 	Product         Product   `gorm:"foreignKey:ProductID"`

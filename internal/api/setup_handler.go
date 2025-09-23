@@ -90,10 +90,11 @@ func (h *SetupHandler) ConfigureStore(c *gin.Context) {
 		return
 	}
 	config := core.StoreConfig{
-		StoreName:     payload.StoreName,
-		BusinessType:  template.DisplayName,
-		SetupComplete: true,
-		ProductSchema: template.Schema,
+		StoreName:      payload.StoreName,
+		BusinessType:   template.DisplayName,
+		BusinessTypeID: payload.BusinessTypeID,
+		SetupComplete:  true,
+		ProductSchema:  template.Schema,
 	}
 	configData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -104,5 +105,5 @@ func (h *SetupHandler) ConfigureStore(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write configuration file."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Canfiguration successful. Please restart the application."})
+	c.JSON(http.StatusOK, gin.H{"message": "Configuration successful. Please restart the application."})
 }

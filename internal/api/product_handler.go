@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -35,7 +34,7 @@ func (h *ProductHandler) RegisterRoutes(router *gin.RouterGroup) {
 		protected := productRoutes.Group("/")
 		protected.Use(AuthMiddleware())
 		{
-			protected.POST("/", h.CreateProductWithMedia) // Menggunakan fungsi baru
+			protected.POST("/", h.CreateProductWithMedia) // Create product + media; subtype attrs via fields
 			protected.PUT("/:id", h.UpdateProduct)
 			protected.DELETE("/:id", h.DeleteProduct)
 			protected.POST("/:id/upload", h.UploadMedia) // Endpoint ini tetap ada untuk menambah media nanti
@@ -56,13 +55,6 @@ func (h *ProductHandler) CreateProductWithMedia(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid stock"})
 		return
 	}
-	attributesJSON := c.PostForm("attributes")
-	var attributes json.RawMessage
-	if attributesJSON != "" {
-		attributes = json.RawMessage(attributesJSON)
-	} else {
-		attributes = json.RawMessage("{}")
-	}
 
 	// 2. Create a new product object
 	newProduct := core.Product{
@@ -71,30 +63,55 @@ func (h *ProductHandler) CreateProductWithMedia(c *gin.Context) {
 		Description: c.PostForm("description"),
 		Price:       price,
 		Stock:       stock,
-		Attributes:  attributes,
 	}
 
-	// 3. Dynamic attribute validation based on schema
-	var attrMap map[string]interface{}
-	if err := json.Unmarshal(newProduct.Attributes, &attrMap); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format for attributes."})
-		return
-	}
-	for _, schema := range h.config.ProductSchema {
-		if schema.Required {
-			if _, ok := attrMap[schema.Key]; !ok {
-				errorMsg := fmt.Sprintf("Attribute '%s' (%s) is required.", schema.Label, schema.Key)
-				c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
-				return
-			}
+	// 3. Subtype attributes based on configured business type
+	switch h.config.BusinessTypeID {
+	case "clothing":
+		warna := c.PostForm("warna")
+		ukuran := c.PostForm("ukuran")
+		bahan := c.PostForm("bahan")
+		// minimal validation based on known schema
+		if warna == "" || ukuran == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "'warna' and 'ukuran' are required for clothing"})
+			return
+		}
+		if err := h.store.Create(&newProduct); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save product"})
+			return
+		}
+		cp := &core.ClothingProduct{ID: uuid.New(), ProductID: newProduct.ID, Warna: warna, Ukuran: ukuran, Bahan: bahan}
+		if err := h.store.CreateClothing(cp); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save clothing attributes"})
+			return
+		}
+	case "cafe", "food":
+		asal := c.PostForm("asal_biji")
+		level := c.PostForm("level_giling")
+		// asal is required in provided schema
+		if asal == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "'asal_biji' is required for food/drink"})
+			return
+		}
+		if err := h.store.Create(&newProduct); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save product"})
+			return
+		}
+		fp := &core.FoodProduct{ID: uuid.New(), ProductID: newProduct.ID, AsalBiji: asal, LevelGiling: level}
+		if err := h.store.CreateFood(fp); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save food attributes"})
+			return
+		}
+	default:
+		// Fallback: just create base product
+		if err := h.store.Create(&newProduct); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save product"})
+			return
 		}
 	}
 
 	// 4. Save the product to the database
-	if err := h.store.Create(&newProduct); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save product"})
-		return
-	}
+	// already created above per subtype
 
 	// 5. Process uploaded media files
 	form, err := c.MultipartForm()
@@ -135,11 +152,23 @@ func (h *ProductHandler) CreateProductWithMedia(c *gin.Context) {
 	}
 
 	// 6. Send success response
-	c.JSON(http.StatusCreated, gin.H{
+	resp := gin.H{
 		"message": "Product and media created successfully",
 		"product": newProduct,
 		"media":   savedMedia,
-	})
+	}
+	// attach subtype data
+	switch h.config.BusinessTypeID {
+	case "clothing":
+		if cp, err := h.store.GetClothingByProductID(newProduct.ID.String()); err == nil {
+			resp["clothing"] = cp
+		}
+	case "cafe", "food":
+		if fp, err := h.store.GetFoodByProductID(newProduct.ID.String()); err == nil {
+			resp["food"] = fp
+		}
+	}
+	c.JSON(http.StatusCreated, resp)
 }
 
 // saveFiles is a helper function to save files and record them in the DB.
@@ -206,6 +235,16 @@ func (h *ProductHandler) GetProductByID(c *gin.Context) {
 		Product: *product,                     // Salin semua data dari struct product
 		Media:   convertToPointerSlice(media), // Convert slice to pointer slice
 	}
+	switch h.config.BusinessTypeID {
+	case "clothing":
+		if cp, err := h.store.GetClothingByProductID(id); err == nil {
+			productDetail.Clothing = cp
+		}
+	case "cafe", "food":
+		if fp, err := h.store.GetFoodByProductID(id); err == nil {
+			productDetail.Food = fp
+		}
+	}
 
 	// 4. Kirim struct gabungan sebagai respons
 	c.JSON(http.StatusOK, productDetail)
@@ -222,13 +261,23 @@ func (h *ProductHandler) ListProducts(c *gin.Context) {
 
 func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	id := c.Param("id")
-	var updatedProduct core.Product
-	if err := c.ShouldBindJSON(&updatedProduct); err != nil {
+	// Accept partial JSON updates. Example payload:
+	// { "name": "New Name", "price": 88000, "clothing": { "warna": "Merah" } }
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	err := h.store.Update(id, &updatedProduct)
-	if err != nil {
+
+	// Base product field mapping
+	allowed := map[string]bool{"name": true, "description": true, "price": true, "stock": true}
+	baseUpdates := map[string]interface{}{}
+	for k, v := range body {
+		if allowed[k] {
+			baseUpdates[k] = v
+		}
+	}
+	if err := h.store.UpdateFields(id, baseUpdates); err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product to be updated not found"})
 			return
@@ -236,6 +285,46 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
 		return
 	}
+
+	// Subtype updates
+	switch h.config.BusinessTypeID {
+	case "clothing":
+		if sub, ok := body["clothing"].(map[string]interface{}); ok {
+			updates := map[string]interface{}{}
+			if v, ok := sub["warna"]; ok {
+				updates["warna"] = v
+			}
+			if v, ok := sub["ukuran"]; ok {
+				updates["ukuran"] = v
+			}
+			if v, ok := sub["bahan"]; ok {
+				updates["bahan"] = v
+			}
+			if len(updates) > 0 {
+				if err := h.store.UpdateClothingByProductID(id, updates); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update clothing attributes"})
+					return
+				}
+			}
+		}
+	case "cafe", "food":
+		if sub, ok := body["food"].(map[string]interface{}); ok {
+			updates := map[string]interface{}{}
+			if v, ok := sub["asal_biji"]; ok {
+				updates["asal_biji"] = v
+			}
+			if v, ok := sub["level_giling"]; ok {
+				updates["level_giling"] = v
+			}
+			if len(updates) > 0 {
+				if err := h.store.UpdateFoodByProductID(id, updates); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update food attributes"})
+					return
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Product updated successfully"})
 }
 
