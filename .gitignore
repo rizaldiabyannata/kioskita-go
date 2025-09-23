@@ -51,4 +51,6 @@ Thumbs.db
 
 /uploads/
 
+# 8. File Lainnya
+# Tambahkan file atau direktori lain yang perlu diabaikan di sini
 store_config.json
